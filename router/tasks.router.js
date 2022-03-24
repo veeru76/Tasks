@@ -1,25 +1,111 @@
 const express = require('express');
 const { default: mongoose } = require('mongoose');
-const router = new express.Router();
+const taskRouter = new express.Router();
 const Task = require('../models/task.models')
 const subtasks = require('../models/subtask.models')
 const action = require('../models/action.models')
-const project = require('../models/project.model')
- 
+const project = require('../models/project.model');
+const { query } = require('express');
+const req = require('express/lib/request');
+const moment = require('moment');
+const res = require('express/lib/response');
+const authController = require('../controllers/authControllers')
 // Get all Tasks
-router.get('/tasks', async (req, res) => {
+taskRouter.get('/tasks', authController.authChecker, async (req, res) => {
     try {
-        const task = await Task.find({});
-        res.status(200).send(task)
+        console.log(req.query)
+        let query =  Task.find();
+
+        // Sorting
+        if(req.query.sort) {
+            query = query.sort(req.query.sort)
+        }
+        else {
+            query = query.sort('-endDate')
+        }
+
+        // Limiting
+        if(req.query.fields) {
+            const fields = req.query.fields.split(',').join('');
+            query = query.select(fields)
+        }
+        else {
+            query = query.select('-__v')
+        }
+
+        //pagination
+
+      const page = req.query.page * 1 || 1;
+      const limit = req.query.limit * 1 || 100
+      const skip = (page - 1)*limit;
+
+      query = query.skip(skip).limit(limit);
+
+      if(req.query.page) {
+          const numTours = await Task.countDocuments();
+          if(skip > numTours) throw new Error('page does not exist')
+      }
+        const tours = await query;
+
+        res.status(200).send(tours)
     }
-    catch (e) {
+    catch (err) {
         res.status(500).send(err);
     }
 })
 
+//getTodayTasks
+taskRouter.get('/getTodayTasks', async(req, res) => {
+    try {
+    const date = moment(new Date()).format('YYYY-MM-DD');
+    const task = await Task.find({startDate : date})
+    res.status(200).json({
+        data : task
+    })
+}
+catch (err) {
+    res.status(400).send(err)
+} 
+})
+
+//getUpComingTasks
+taskRouter.get('/getUpComingTasks', async(req, res) => {
+    try {
+        const date = moment(new Date()).format('YYYY-MM-DD');
+        const task = await Task.aggregate([
+            {
+                $match : {startDate : {$gte :ISODate(date)} }
+            }])
+            res.status(200).json({
+                data : task
+            })
+
+    } catch (error) {
+        res.status(400).send(error)
+    }
+})
+// taskStats
+
+taskRouter.get('/getTaskstats', async(req, res) => {
+    try {
+    const task = await Task.aggregate([
+      { 
+          $match : {completionOfTask : {$gte : 50} }
+      },
+     
+    ])
+    res.status(200).json({
+        data : task
+    })
+}
+catch (err) {
+    res.status(400).send(err)
+} 
+})
+
 // action history
 
-router.get('/actionhistory/:id', async(req, res) => {
+taskRouter.get('/actionhistory/:id', async(req, res) => {
     const id = req.params.id
     try {
         const task = await action.find({Aid :id })
@@ -31,7 +117,7 @@ router.get('/actionhistory/:id', async(req, res) => {
 })
 
 // tags to task
-router.post('/tags', async(req, res) => {
+taskRouter.post('/tags', async(req, res) => {
     try {
         const task = await Task.find(req.body)
         res.status(200).send(task)
@@ -42,7 +128,7 @@ router.post('/tags', async(req, res) => {
 })
 
 // Get Tasks By percent of Completion
-// router.post('/tasks', async (req, res) => {
+// taskRouter.post('/tasks', async (req, res) => {
 //     try {
 //         const task = await Task.find(req.body.completionOfTask);
 //         const gt = task.map(ele => ele.completionOfTask > 30)
@@ -54,7 +140,7 @@ router.post('/tags', async(req, res) => {
 // })
 
 // Get task by Id
-router.get('/tasks/:id', async (req, res) => {
+taskRouter.get('/tasks/:id', async (req, res) => {
     const id = req.params.id;
     try {
         const result = await Task.findById(id)
@@ -74,7 +160,7 @@ router.get('/tasks/:id', async (req, res) => {
 
 // creating projects
 
-router.post('/Projects', async(req, res) => {
+taskRouter.post('/Projects', async(req, res) => {
     const Project = new project(req.body);
     try {
         await Project.save()
@@ -86,7 +172,7 @@ router.post('/Projects', async(req, res) => {
 })
  
 // Get Projects with Tasks in it
-router.get('/Projects/:id', async (req, res) => {
+taskRouter.get('/Projects/:id', async (req, res) => {
     const id = req.params.id;
     try {
         const result = await project.find({projectId : id})
@@ -103,7 +189,7 @@ router.get('/Projects/:id', async (req, res) => {
 })
 // creating tasks
 
-router.post('/tasks', async (req, res) => {
+taskRouter.post('/tasks', async (req, res) => {
     var id = new mongoose.Types.ObjectId();
     req.body["Sid"] = id._id 
     const task = new Task(req.body);
@@ -117,7 +203,7 @@ router.post('/tasks', async (req, res) => {
 })
 // creating subtasks
 
-router.post('/subtasks/:id', async (req, res) => {
+taskRouter.post('/subtasks/:id', async (req, res) => {
     const id = req.params.id
     const result = await Task.findById(id);
     if(result) {
@@ -134,7 +220,7 @@ router.post('/subtasks/:id', async (req, res) => {
 })
 
 // get subtasks
-router.get('/subtasks/:id', async (req, res) => {
+taskRouter.get('/subtasks/:id', async (req, res) => {
     const id = req.params.id;
     try {
         const result = await subtasks.find({Sid : id})
@@ -147,7 +233,7 @@ router.get('/subtasks/:id', async (req, res) => {
 })
 
 //update subtasks
-router.patch('/subtasks/:id', async(req, res) => {
+taskRouter.patch('/subtasks/:id', async(req, res) => {
     
     try{
         const task = await subtasks.findByIdAndUpdate(req.params.id, req.body, {
@@ -169,7 +255,7 @@ router.patch('/subtasks/:id', async(req, res) => {
 
 // delete subtasks
 
-router.delete('/subtasks/:id', async(req, res) => {
+taskRouter.delete('/subtasks/:id', async(req, res) => {
     const id = req.params.id;
     try {
         await subtasks.findOneAndDelete(id);
@@ -187,7 +273,7 @@ router.delete('/subtasks/:id', async(req, res) => {
 })
 //update tasks
 
-router.patch('/tasks/:id', async(req, res) => {
+taskRouter.patch('/tasks/:id', async(req, res) => {
     const updates = Object.keys(req.body);
     const allowUpdates = ['name','description', 'completed', "endDate", "Priority","completionOfTask"];
     const isValidateOperation = updates.every((update) => allowUpdates.includes(update));
@@ -222,7 +308,7 @@ router.patch('/tasks/:id', async(req, res) => {
 
 // Deleting Tasks
 
-router.delete('/tasks/:id', async(req, res) => {
+taskRouter.delete('/tasks/:id', async(req, res) => {
     try {
   const task = await Task.findByIdAndDelete(req.params.id);
         if(task) {
@@ -243,4 +329,4 @@ router.delete('/tasks/:id', async(req, res) => {
 })
 
 
-module.exports = router;
+module.exports = taskRouter;
